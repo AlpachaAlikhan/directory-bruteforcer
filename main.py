@@ -1,14 +1,28 @@
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
-
+MAX_WORKERS = 100
 TIMEOUT = 2
 
 
 def main():
     target = get_target()
     words = get_wordlist()
-    results = scan(target, words)
-    print_results(results)
+    start = time.perf_counter()
+    results = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(scan, target, word) : f"{target}/{word}"
+            for word in words
+        }
+        for future in as_completed(futures):
+            url = futures[future]
+            status = future.result()
+    if status is not None:
+        results[url] = status
+    end = time.perf_counter()
+    print_results(results, end - start)
 
 def get_target():
     while True:
@@ -29,22 +43,20 @@ def get_wordlist():
         except FileNotFoundError:
             print("File not found, please try again.")
 
-def scan(target, words):
-    results = {}
-    for word in words:
-        url = f"{target}/{word}"
-        try:
-            response = requests.get(url, timeout=TIMEOUT)
-        except requests.RequestException:
-            continue
-        if response.status_code != 404:
-            results[url] = response.status_code
-    return results
+def scan(target, word):
+    url = f"{target}/{word}"
+    try:
+        response = requests.get(url, timeout=TIMEOUT)
+    except requests.RequestException:
+        return None
+    if response.status_code != 404:
+        result = response.status_code
+        return result
 
-def print_results(results):
+def print_results(results, time):
     print("====================\nFound:\n\n")
     for url, status in results.items():
         print(f"[{status}] {url}")
-    print(f"\nTotal:{len(results)}\n====================")
+    print(f"\nTotal:{len(results)}\nScan completed in {time:.2f} seconds.\n====================")
 
 main()
